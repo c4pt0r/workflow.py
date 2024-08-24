@@ -1,4 +1,4 @@
-# workflow.py
+# workflowlite
 # Author: Ed Huang (i@huangdx.net)
 
 # A workflow engine that allows the execution of jobs composed of multiple steps. Each step is defined by an action
@@ -11,51 +11,77 @@
 # Example Usage:
 #
 # ```python
+# import time
+# from workflowlite import WorkflowEngine, Context, JobHook
+# 
+# # Initialize the workflow engine
 # engine = WorkflowEngine()
-#
-# @engine.register_action('prepare')
-# def prepare(inputs: List[str], context: Context):
-#     context['prepared_output'] = "prepared_output.mp4"
-#
-# @engine.register_action('ffmpeg')
-# def ffmpeg(inputs: List[str], context: Context):
-#     context['mp3_output'] = "output.mp3"
-#
+# 
+# @engine.register_action('load_data')
+# def load_data(inputs: List[str], context: Context):
+#     # Simulating data loading
+#     context['data'] = f"Data loaded from {inputs[0]}"
+# 
+# @engine.register_action('process_data')
+# def process_data(inputs: List[str], context: Context):
+#     data = context.get(inputs[0])
+#     # Simulating data processing
+#     context['processed_data'] = f"Processed {data}"
+# 
+# @engine.register_action('generate_report')
+# def generate_report(inputs: List[str], context: Context):
+#     processed_data = context.get(inputs[0])
+#     # Simulating report generation
+#     context['report'] = f"Report generated for {processed_data}"
+# 
 # @engine.register_hook('on_finish')
-# def on_finish(context: Context):
-#     print("Job finished successfully!")
-#
+# def on_finish(context: Context, extra: Any):
+#     print(f"Job finished successfully! Time Taken: {extra} seconds")
+#     print(context['report'])  # Display the generated report
+# 
 # @engine.register_hook('on_except')
-# def on_except(context: Context):
-#     print("Job encountered an exception.")
-#
+# def on_except(context: Context, extra: Any):
+#     print(f"Job encountered an exception: {extra}")
+# 
+# # Define the job
 # job = {
-#     "name": "video_processing",
-#     "env": {"input_file": "video.mp4"},
+#     "name": "data_processing",
+#     "env": {"input_file": "data.csv"},
 #     "steps": [
 #         {
-#             "action": "prepare",
+#             "action": "load_data",
 #             "input": ["input_file"],
-#             "output": ["prepared_output"]
+#             "output": ["data"]
 #         },
 #         {
-#             "action": "ffmpeg",
-#             "input": ["prepared_output"],
-#             "output": ["mp3_output"]
+#             "action": "process_data",
+#             "input": ["data"],
+#             "output": ["processed_data"]
+#         },
+#         {
+#             "action": "generate_report",
+#             "input": ["processed_data"],
+#             "output": ["report"]
 #         }
 #     ],
-#     "output": ["mp3_output"],
+#     "output": ["report"],
 #     "on_finish": "on_finish",
 #     "on_except": "on_except"
 # }
-#
+# 
+# # Submit and execute the job with time tracking
+# start_time = time.time()
 # with engine:
 #     job_future = engine.submit_job(job)
 #     try:
 #         result = job_future.wait()
-#         print(f"Job completed with output: {result}")
+#         end_time = time.time()
+#         engine.hook_extra_args['on_finish'] = end_time - start_time  # Set the extra arg for the finish hook
 #     except Exception as e:
-#         print(f"Job failed with exception: {e}")
+#         end_time = time.time()
+#         engine.hook_extra_args['on_except'] = str(e)  # Set the extra arg for the exception hook
+# 
+# ```
 
 import concurrent.futures
 import inspect
@@ -65,7 +91,8 @@ from typing import Callable, Dict, List, Any, Optional, Union
 # Type definitions
 Context = Dict[str, Any]
 ActionFunction = Callable[[List[str], Context], None]
-JobHook = Callable[[Context], None]
+JobHook = Callable[[Context, Any], None]
+
 
 class InvalidActionFunctionError(Exception):
     """Raised when an action function does not match the expected signature."""
@@ -157,6 +184,7 @@ class WorkflowEngine:
         """
         self.actions_registry: Dict[str, ActionFunction] = {}
         self.hooks_registry: Dict[str, JobHook] = {}
+        self.hook_extra_args: Dict[str, Any] = {}
         self.executor = concurrent.futures.ThreadPoolExecutor(max_workers=max_workers)
     
     def __enter__(self):
@@ -205,31 +233,22 @@ class WorkflowEngine:
         return decorator
 
     def register_hook(self, name: str) -> Callable[[JobHook], JobHook]:
-        """
-        A decorator to register a hook function under a given name.
-
-        Args:
-            name (str): The name to register the hook under.
-
-        Returns:
-            Callable: A decorator function that registers the hook.
-        
-        Raises:
-            InvalidHookFunctionError: If the function signature does not match the expected signature.
-        """
         def decorator(func: JobHook) -> JobHook:
-            # Get the function's signature and expected signature
             func_signature = inspect.signature(func)
             expected_signature = inspect.Signature([
                 inspect.Parameter('context', inspect.Parameter.POSITIONAL_OR_KEYWORD, annotation=Context),
+                inspect.Parameter('extra', inspect.Parameter.POSITIONAL_OR_KEYWORD, annotation=Any),
             ])
 
-            # Check if the function signature matches the expected signature
             if func_signature != expected_signature:
                 raise InvalidHookFunctionError(func.__name__, str(expected_signature))
+            
             self.hooks_registry[name] = func
+            self.hook_extra_args[name] = None  # Initialize with None or a default value
             return func
+
         return decorator
+
 
     def execute_step(self, step: Dict[str, Any], context: Context):
         """
@@ -283,15 +302,12 @@ class WorkflowEngine:
         context["$job_run_id"] = str(uuid.uuid4())
         context["$job_status"] = "RUNNING"
 
-        # If user register on_progress function, set it to the context
-        if "on_progress" in job and job["on_progress"] in self.hooks_registry:
-            context["$on_progress"] = self.hooks_registry[job["on_progress"]]
+        # Bind all registered actions to the context
+        context.update({f"$${name}": func for name, func in self.hooks_registry.items()})
 
         try:
             for step in job['steps']:
                 context["$current_step"] = step["action"]
-                if "$on_progress" in context:
-                    context["$on_progress"](context)
                 self.execute_step(step, context)
             
             # Mark job as finished
@@ -299,7 +315,8 @@ class WorkflowEngine:
 
             # Call the on_finish hook if defined
             if "on_finish" in job and job["on_finish"] in self.hooks_registry:
-                self.hooks_registry[job["on_finish"]](context)
+                self.hooks_registry[job["on_finish"]](context, self.hook_extra_args[job["on_finish"]])
+
 
         except Exception as e:
             # Mark job as failed
@@ -307,7 +324,7 @@ class WorkflowEngine:
 
             # Call the on_except hook if defined
             if "on_except" in job and job["on_except"] in self.hooks_registry:
-                self.hooks_registry[job["on_except"]](context)
+                self.hooks_registry[job["on_except"]](context, self.hook_extra_args[job["on_except"]])
             # Capture and re-raise the exception
             raise e
 
@@ -357,3 +374,4 @@ class WorkflowEngine:
         self.validate_job(job)
         job_future = JobFuture(self.executor.submit(self.execute_job, job), job)
         return job_future
+

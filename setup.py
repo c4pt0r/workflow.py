@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="workflowlite",
-    version="0.1.0",
+    version="0.2.0",
     packages=find_packages(),
     install_requires=[
     ],
@@ -14,7 +14,6 @@ setup(
     url="https://github.com/c4pt0r/workflowlite",
     classifiers=[
         "Programming Language :: Python :: 3",
-        "License :: OSI Approved :: Apache License",
         "Operating System :: OS Independent",
     ],
     python_requires='>=3.6',
