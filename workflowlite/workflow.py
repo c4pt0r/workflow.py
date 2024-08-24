@@ -365,6 +365,9 @@ class WorkflowEngine:
         """
         self.validate_job(job)
         job.get('env', {}).update({
+            "$job_meta": {k: v for k, v in job.items() if k != "env"}
+        })
+        job.get('env', {}).update({
             "$job_run_id": str(uuid.uuid4())
         })
         job_future = JobFuture(self.executor.submit(self.execute_job, job), job)
