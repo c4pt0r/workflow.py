@@ -5,16 +5,15 @@ from typing import List, Any
 engine = WorkflowEngine()
 
 @engine.register_action('load_data')
-def load_data(inputs: List[str], context: Context):
+def load_data(param: List[str], context: Context):
     # Simulating data loading
-    context['data'] = f"Data loaded from {inputs[0]}"
+    context['data'] = f"Data loaded from {param[0]}"
 
 @engine.register_action('process_data')
 def process_data(inputs: List[str], context: Context):
     data = context.get(inputs[0])
     # Simulating data processing
     context['processed_data'] = f"Processed {data}"
-    raise Exception("Error occurred during data processing")
 
 @engine.register_action('generate_report')
 def generate_report(inputs: List[str], context: Context):

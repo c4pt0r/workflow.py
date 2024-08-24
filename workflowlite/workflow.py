@@ -205,44 +205,34 @@ class WorkflowEngine:
         self.executor.shutdown(wait=wait)
 
     def register_action(self, name: str) -> Callable[[ActionFunction], ActionFunction]:
-        """
-        A decorator to register an action function under a given name.
-
-        Args:
-            name (str): The name to register the action under.
-
-        Returns:
-            Callable: A decorator function that registers the action.
-        
-        Raises:
-            InvalidActionFunctionError: If the function signature does not match the expected signature.
-        """
         def decorator(func: ActionFunction) -> ActionFunction:
-            # Get the function's signature and expected signature
-            func_signature = inspect.signature(func)
-            expected_signature = inspect.Signature([
-                inspect.Parameter('inputs', inspect.Parameter.POSITIONAL_OR_KEYWORD, annotation=List[str]),
-                inspect.Parameter('context', inspect.Parameter.POSITIONAL_OR_KEYWORD, annotation=Context),
-            ])
+            # Extract the function's parameter types
+            func_params = inspect.signature(func).parameters
+            expected_param_types = [List[str], Context]  # Expected types in order
 
-            # Check if the function signature matches the expected signature
-            if func_signature != expected_signature:
-                raise InvalidActionFunctionError(func.__name__, str(expected_signature))
+            # Compare the parameter types
+            if len(func_params) != len(expected_param_types) or \
+                    any(param.annotation != expected_type for param, expected_type in zip(func_params.values(), expected_param_types)):
+                expected_signature = f"Expected parameter types: {', '.join(t.__name__ for t in expected_param_types)}"
+                raise InvalidActionFunctionError(func.__name__, expected_signature)
+
             self.actions_registry[name] = func
             return func
+
         return decorator
 
     def register_hook(self, name: str) -> Callable[[JobHook], JobHook]:
         def decorator(func: JobHook) -> JobHook:
-            func_signature = inspect.signature(func)
-            expected_signature = inspect.Signature([
-                inspect.Parameter('context', inspect.Parameter.POSITIONAL_OR_KEYWORD, annotation=Context),
-                inspect.Parameter('extra', inspect.Parameter.POSITIONAL_OR_KEYWORD, annotation=Any),
-            ])
+            # Extract the function's parameter types
+            func_params = inspect.signature(func).parameters
+            expected_param_types = [Context, Any]  # Expected types in order
 
-            if func_signature != expected_signature:
-                raise InvalidHookFunctionError(func.__name__, str(expected_signature))
-            
+            # Compare the parameter types
+            if len(func_params) != len(expected_param_types) or \
+                    any(param.annotation != expected_type for param, expected_type in zip(func_params.values(), expected_param_types)):
+                expected_signature = f"Expected parameter types: {', '.join(t.__name__ for t in expected_param_types)}"
+                raise InvalidHookFunctionError(func.__name__, expected_signature)
+
             self.hooks_registry[name] = func
             self.hook_extra_args[name] = None  # Initialize with None or a default value
             return func
