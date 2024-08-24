@@ -313,6 +313,37 @@ class WorkflowEngine:
 
         return context
 
+    def validate_job(self, job: Dict[str, Any]):
+        """
+        Validates a job definition to ensure it contains all required fields and that referenced actions and hooks are registered.
+
+        Args:
+            job (Dict[str, Any]): The job definition to validate.
+
+        Raises:
+            ValueError: If the job definition is missing required fields or references unregistered actions or hooks.
+        """
+        # Check for required top-level fields
+        required_fields = ['name', 'steps']
+        for field in required_fields:
+            if field not in job:
+                raise ValueError(f"Job definition is missing required field: {field}")
+
+        # Validate each step in the job
+        for step in job['steps']:
+            if 'action' not in step or 'input' not in step or 'output' not in step:
+                raise ValueError("Each step must have 'action', 'input', and 'output' fields")
+
+            # Check if the action is registered
+            if step['action'] not in self.actions_registry:
+                raise ValueError(f"Action '{step['action']}' is not registered.")
+
+        # Validate hooks if they are specified
+        if 'on_finish' in job and job['on_finish'] not in self.hooks_registry:
+            raise ValueError(f"Finish hook '{job['on_finish']}' is not registered.")
+        if 'on_except' in job and job['on_except'] not in self.hooks_registry:
+            raise ValueError(f"Exception hook '{job['on_except']}' is not registered.")
+
     def submit_job(self, job: Dict[str, Any]) -> JobFuture:
         """
         Submits a job for execution.
@@ -323,5 +354,6 @@ class WorkflowEngine:
         Returns:
             JobFuture: A JobFuture object to manage and retrieve the job's result.
         """
+        self.validate_job(job)
         job_future = JobFuture(self.executor.submit(self.execute_job, job), job)
         return job_future
