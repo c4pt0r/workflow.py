@@ -122,6 +122,12 @@ class MissingInputError(Exception):
         super().__init__(f"Required input '{input_name}' is missing from context.")
         self.input_name = input_name
 
+class RuntimeError(Exception):
+    def __init__(self, context: Context, exception: Exception):
+        super().__init__(f"An error occurred during job execution: {exception}")
+        self.exception = exception
+        self.context = context
+
 class JobFuture:
     """
     A wrapper around the concurrent.futures.Future object to handle job execution and results.
@@ -287,11 +293,8 @@ class WorkflowEngine:
             Exception: If any exception occurs during the job execution, it will be raised and handled.
         """
         context = job['env'].copy()
-
         # Initialize system variables
-        context["$job_run_id"] = str(uuid.uuid4())
         context["$job_status"] = "RUNNING"
-
         # Bind all registered actions to the context
         context.update({f"$${name}": func for name, func in self.hooks_registry.items()})
 
@@ -307,7 +310,6 @@ class WorkflowEngine:
             if "on_finish" in job and job["on_finish"] in self.hooks_registry:
                 self.hooks_registry[job["on_finish"]](context, self.hook_extra_args[job["on_finish"]])
 
-
         except Exception as e:
             # Mark job as failed
             context["$job_status"] = "FAILED"
@@ -316,7 +318,7 @@ class WorkflowEngine:
             if "on_except" in job and job["on_except"] in self.hooks_registry:
                 self.hooks_registry[job["on_except"]](context, self.hook_extra_args[job["on_except"]])
             # Capture and re-raise the exception
-            raise e
+            raise RuntimeError(context, e)
 
         return context
 
@@ -362,6 +364,9 @@ class WorkflowEngine:
             JobFuture: A JobFuture object to manage and retrieve the job's result.
         """
         self.validate_job(job)
+        job.get('env', {}).update({
+            "$job_run_id": str(uuid.uuid4())
+        })
         job_future = JobFuture(self.executor.submit(self.execute_job, job), job)
         return job_future
 

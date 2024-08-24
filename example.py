@@ -1,4 +1,4 @@
-from workflowlite import WorkflowEngine, Context, JobHook
+from workflowlite import WorkflowEngine, Context, RuntimeError
 from typing import List, Any
 
 # Initialize the workflow engine
@@ -22,6 +22,7 @@ def generate_report(inputs: List[str], context: Context):
     processed_data = context.get(inputs[0])
     # Simulating report generation
     context['report'] = f"Report generated for {processed_data}"
+    raise Exception("Simulated exception")
 
 @engine.register_hook('on_finish')
 def on_finish(context: Context, extra: Any):
@@ -58,14 +59,16 @@ job = {
         }
     ],
     "output": ["report"],
-    "on_finish": "on_finish",
-    "on_except": "on_except"
 }
 
 with engine:
     job_future = engine.submit_job(job)
     try:
         result = job_future.wait()
-    except Exception as e:
-        print(f"Job failed with exception: {e}")
+    except RuntimeError as e:
+        context = e.context
+        ee = e.exception
+        print(f"Context: {context}")
+        print(f"Exception: {ee}")
+        raise ee
 
